@@ -1,0 +1,19 @@
+{
+    "servers": {
+      "odoo-blaze-mcp": {
+        "command": "uv",
+        "args": [
+              "--directory",
+              "/home/shanmugam/Videos/myodoo-mcp-server",
+              "run",
+              "server.py"
+          ],
+          "env": {
+            "ODOO_URL": "https://mcp-research.odoo.com",
+            "ODOO_DB": "mcp-research",
+            "ODOO_USER": "shanmugam@blaze.ws",
+            "ODOO_PASSWORD": "KjD9?.W4p4XJKz@q",
+        }
+      }
+    }
+  } 
