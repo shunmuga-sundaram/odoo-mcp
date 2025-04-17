@@ -43,6 +43,31 @@ async def Fetch_list_leads():
     return crm_leads
 
 
+async def Fetch_lead_by_id(lead_id: int):
+    """ It pulls the specific lead details from Odoo CRM by ID. """
+    # Common endpoint for authentication
+    common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common")
+
+    # Authenticate
+    uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
+    if not uid:
+        print("Authentication failed.")
+        return None
+
+    # Access the object endpoint
+    models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
+
+    # Search for specific CRM lead
+    crm_lead = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD,
+        'crm.lead', 'search_read',  # Model and method
+        [[['id', '=', lead_id]]],  # Domain filter for specific ID
+        {'fields': ['name', 'contact_name', 'email_from', 'phone', 'description']}  # Fields to fetch
+    )
+
+    return crm_lead[0] if crm_lead else None
+
+
 async def create_lead(lead_data:dict):
     """ It will created the new lead in odoo crm. """
     try:
@@ -62,16 +87,10 @@ async def create_lead(lead_data:dict):
             [lead_data]  # Data for the new lead
         )
         
-        return {
-                     "code": 200,
-                     "email": f"Lead created successfully with ID: {lead_id}",
-            }
+        return {"code": "200", "message": f"Lead created successfully with ID: {lead_id}"}
     
     except Exception as e:
-        return {
-                     "code": 400,
-                     "email": f"An error occurred: {str(e)}",
-               }
+        return {"code": 400, "message": f"An error occurred: {str(e)}"}
 
 
 # Proper way to run async function
@@ -93,6 +112,23 @@ async def list_leads():
     if leads:
         return json.dumps(leads)
     return None
+
+
+@mcp.tool()
+async def get_lead_by_id(lead_id: int):
+    """ 
+    Run to get lead details by ID from odoo crm. 
+    Parameters:
+        lead_id: ID of the lead to fetch
+    Example:
+        get_lead_by_id(6)
+    Returns:
+        dict: The lead details.
+    """
+    lead = await Fetch_lead_by_id(lead_id)
+    if lead:
+        return json.dumps(lead)
+    return json.dumps({"error": "Lead not found"})
 
 
 @mcp.tool()
