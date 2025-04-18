@@ -6,98 +6,77 @@ import json
 import asyncio
 from datetime import date
 import xmlrpc.client
+from typing import Optional, Tuple
 
 load_dotenv()
 
 # initialize server
 mcp = FastMCP("odoo-blaze-mcp")
 
-ODOO_URL = os.getenv("ODOO_URL", "https://mcp-research.odoo.com")
-ODOO_DB = os.getenv("ODOO_DB", "mcp-research")
-ODOO_USER = os.getenv("ODOO_USER", "shanmugam@blaze.ws")
-ODOO_PASSWORD = os.getenv("ODOO_PASSWORD", "KjD9?.W4p4XJKz@q")
+ODOO_URL = os.getenv("ODOO_URL")
+ODOO_DB = os.getenv("ODOO_DB")
+ODOO_USER = os.getenv("ODOO_USER")
+ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
 
-async def Fetch_list_leads():
-    """ It pulls the employees list from the FocusRO API. """
-
-     # Common endpoint for authentication
+async def get_odoo_connection() -> Tuple[Optional[int], Optional[xmlrpc.client.ServerProxy]]:
+    """Utility function to handle Odoo authentication and connection"""
     common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common")
-
-    # Authenticate
     uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
     if not uid:
-        print("Authentication failed.")
-        exit()
-
-    # Access the object endpoint
+        return None, None
+    
     models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
+    return uid, models
 
-    # Example: Search for CRM leads
-    crm_leads = models.execute_kw(
-        ODOO_DB, uid, ODOO_PASSWORD,
-        'crm.lead', 'search_read',  # Model and method
-        [[]],  # Domain filter
-        {'fields': ['name', 'contact_name', 'email_from']}  # Fields to fetch
-    )
-
-    return crm_leads
-
-
-async def Fetch_lead_by_id(lead_id: int):
-    """ It pulls the specific lead details from Odoo CRM by ID. """
-    # Common endpoint for authentication
-    common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common")
-
-    # Authenticate
-    uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
-    if not uid:
-        print("Authentication failed.")
+async def execute_odoo_operation(operation: str, *args, **kwargs):
+    """Utility function to execute Odoo operations with error handling"""
+    uid, models = await get_odoo_connection()
+    if not uid or not models:
+        return None
+    
+    try:
+        result = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, *args, **kwargs)
+        return result
+    except Exception as e:
+        print(f"Error in {operation}: {str(e)}")
         return None
 
-    # Access the object endpoint
-    models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
-
-    # Search for specific CRM lead
-    crm_lead = models.execute_kw(
-        ODOO_DB, uid, ODOO_PASSWORD,
-        'crm.lead', 'search_read',  # Model and method
-        [[['id', '=', lead_id]]],  # Domain filter for specific ID
-        {'fields': ['name', 'contact_name', 'email_from', 'phone', 'description']}  # Fields to fetch
+async def Fetch_list_leads():
+    """It pulls the leads list from Odoo CRM."""
+    result = await execute_odoo_operation(
+        'fetch_leads',
+        'crm.lead', 'search_read',
+        [[]],
+        {'fields': ['name', 'contact_name', 'email_from']}
     )
+    return result
 
-    return crm_lead[0] if crm_lead else None
+async def Fetch_lead_by_id(lead_id: int):
+    """It pulls the specific lead details from Odoo CRM by ID."""
+    result = await execute_odoo_operation(
+        'fetch_lead_by_id',
+        'crm.lead', 'search_read',
+        [[['id', '=', lead_id]]],
+        {'fields': ['name', 'contact_name', 'email_from', 'phone', 'description']}
+    )
+    return result[0] if result else None
 
-
-async def create_lead(lead_data:dict):
-    """ It will created the new lead in odoo crm. """
+async def create_lead(lead_data: dict):
+    """It will create a new lead in odoo crm."""
     try:
-        # Authenticate and get user ID
-        common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common")
-        uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
-        if not uid:
-            return {"code": 400, "message": "Authentication failed. Please check your credentials." }
-        
-        # Access the 'object' endpoint
-        models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
-        
-        # Create a new lead
-        lead_id = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            'crm.lead', 'create',  # Model and method
-            [lead_data]  # Data for the new lead
+        result = await execute_odoo_operation(
+            'create_lead',
+            'crm.lead', 'create',
+            [lead_data]
         )
-        
-        return {"code": "200", "message": f"Lead created successfully with ID: {lead_id}"}
-    
+        return {"code": "200", "message": f"Lead created successfully with ID: {result}"} if result else {
+            "code": 400,
+            "message": "Failed to create lead"
+        }
     except Exception as e:
         return {"code": 400, "message": f"An error occurred: {str(e)}"}
 
-
-# Proper way to run async function
-# if __name__ == "__main__":
-#     print(asyncio.run(Fetch_weather_info("karachi")))
-
-
+# MCP Tool functions remain unchanged
 @mcp.tool()
 async def list_leads():
     """ 
@@ -107,12 +86,10 @@ async def list_leads():
     Returns:
         dict: The lead details.
     """
-
     leads = await Fetch_list_leads()
     if leads:
         return json.dumps(leads)
     return None
-
 
 @mcp.tool()
 async def get_lead_by_id(lead_id: int):
@@ -130,7 +107,6 @@ async def get_lead_by_id(lead_id: int):
         return json.dumps(lead)
     return json.dumps({"error": "Lead not found"})
 
-
 @mcp.tool()
 async def create_leads(name: str, contact_name: str, email_from: str, phone: str, description: str):
     """ 
@@ -146,22 +122,18 @@ async def create_leads(name: str, contact_name: str, email_from: str, phone: str
     Returns:
         dict: sucess/error response.
     """
-
     lead_data = {
-        'name': name,  # Required field
+        'name': name,
         'contact_name': contact_name,
         'email_from': email_from,
         'phone': phone,
         'description': description,
     }
     
-
     leads = await create_lead(lead_data)
     if leads:
         return json.dumps(leads)
     return None
-
-
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
